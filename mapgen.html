@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+		<title>Mapgen</title>
+		<style>
+			body {background-color: green}
+			textarea {width: 100%}
+			#addmapform, #editmarkerform {display: none; position: absolute; margin-left: 30%; margin-top: 100px; border: 1px solid black; padding: 10px; background-color: #AADCC4}
+			#newtr td {border: 1px solid rgb(221, 221, 221); }
+		</style>
+		<link href="source/bootstrap.min.css" rel="stylesheet">
+		<script src="source/jquery-3.1.1.js"></script>
+		<script src="source/bootstrap.min.js"></script>
+	</head>
+	<body>
+	<!-- инпут для загрузки тестовых данных -->	
+	<label for='load'>Load from file:</label>
+	<input type='file' id='load'>
+	<br>
+	<!-- форма добавления карты, изначально скрыта -->
+	<form id='addmapform'>
+		<label for="mapname">Enter map name</label>
+		<input type='text' id='mapname' autocomplete='off'>
+		<input type=button value='Save map' id='savemap'>
+		<input type=button value='Close form' id='closeaddmapform'>
+	</form>
+	<!--кнопка для показа формы добавления карты-->
+	<button id='addmapbutton'>Add map</button>
+	<!--список карт-->
+	<label for='map'>Maps list</label>
+	<select id='map' name='map'></select>
+	<!-- форма редактирования маркера, изначально скрыта -->
+	<form id='editmarkerform'>
+		<label for='markeridlabel'>Marker ID:</label>
+		<label id='markeridlabel'></label>
+		<br><br>
+		<label for="iconselector">Select icon type</label>
+		<br id='brelem'><br>
+		<label for="xcoord">Set x</label>
+		<input type='text' id='xcoord' autocomplete='off'>
+		<br><br>
+		<label for="zcoord">Set z</label>
+		<input type='text' id='zcoord' autocomplete='off'>
+		<br><br>
+		<input type=button value='Save changes' id='editmarker'>
+		<input type=button value='Close form and cancel changes' id='closeeditform'>
+	</form>
+	<br><br>
+	<!--таблица с маркерами (шапка)-->
+	<table id='tab' class="table table-striped table-bordered table-hover">
+	<tbody class='header'>
+	<tr>
+		<th>MarkerID</th>
+		<th>IconType</th>
+		<th>X</th>
+		<th>Z</th>
+	</tr>
+	</tbody>
+	</table>
+	<br><br>
+	<label for='username'>User name</label>
+	<!--поле с username, который будет в тексте команды-->
+	<input type='text'id='username' value='USERNAME'>
+	<!--кнопка для генерации команды-->
+	<button id='generatebutton'>Generate command</button>
+	<!--кнопка для сохранения маркера-->
+	<button id='savemarkersbutton'>Save marker</button>
+	<!--поле, в которое выводится команда-->
+	<textarea id='command' width='300px'></textarea>
+	</body>
+	<script>
+//1. Объявление функций
+//функция для показа/скрытия строк с маркерами после выбор карты
+function showHideMarkers() {
+	var tbodies=tab.getElementsByClassName('maptbody'); //получаем массив элементов с классом 'maptbody'
+	for (var i=0; i<tbodies.length; i++) {
+		//если у элемента data-mapname==имени выбранной карты, джелаем элемент видимым, иначе - скрытым
+		(tbodies[i].dataset['mapname']==map.selectedOptions[0].innerHTML)?tbodies[i].removeAttribute('hidden'):tbodies[i].setAttribute('hidden',''); 		
+	};
+};		
+//устанавливаем значение MarkerId для выбранной карты
+function setNewMarkerId() {
+	if (map.children.length>0) {
+		markerid.innerHTML=maps[selectedMapId].length; //markerid нового маркера - это кол-во маркеров у карты + 1
+	};		
+};		
+//функция для очистки полей
+function clearFields() {
+	x.value=''; //очищаем координаты несохраненного маркера
+	z.value='';
+	icon.firstChild.dataset['iconid']=0; //у несохраненного маркера выставляем 1-ю иконку 
+	icon.firstChild.firstChild.firstChild.src='icons/0.png';
+	command.value=''; //очищаем поле команды
+	mapname.value=''; //очищаем поле на форме добавления карты
+};		
+//создание выпадающего списка
+function createSelector() {
+	var div=document.createElement('div'); 
+	div.classList.add("btn-group");
+	var a=document.createElement('a');
+	a.classList.add("btn");
+	a.classList.add("dropdown-toggle");
+	a.dataset['toggle']="dropdown";
+	a.href="#";
+	div.appendChild(a);
+	var img=document.createElement('img');
+	img.src="icons/0.png"
+	a.appendChild(img);
+	var span=document.createElement('span');
+	span.classList.add("caret");
+	a.appendChild(span);
+	var ul=document.createElement('ul');
+	ul.classList.add("dropdown-menu");
+	div.appendChild(ul);
+	for (var i=0; i<=9; i++) {
+		var li=document.createElement('li');
+		a=document.createElement('a');
+		a.href="#";
+		img=document.createElement('img');
+		img.src="icons/"+i+".png"
+		a.appendChild(img);
+		li.appendChild(a);
+		ul.appendChild(li);
+	};
+	return div;
+};
+//функция для создания строки tr с данными о маркере (если передан аргумент arr - это сохраненный маркер, если не передан - несохраненный)
+function createMarkerRow(arr) {
+	var tr=document.createElement('tr'); //создаем строку и добавляем в нее 4 ячейки
+	td0=document.createElement('td'); //marker id
+	tr.appendChild(td0);
+	td1=document.createElement('td'); //icon type
+	tr.appendChild(td1);
+	td2=document.createElement('td'); //x
+	tr.appendChild(td2);
+	td3=document.createElement('td'); //z
+	tr.appendChild(td3);
+	if (arr) { 	//если передан аргумент arr, занчит маркер сохраненный
+		td1.dataset['iconid']=arr[0];//будем хранить id выбранной иконки в data-iconid ячейки
+		var img=document.createElement('img');// в ячейку с icon type добавляем просто картинку
+		img.src='icons/'+arr[0]+'.png';
+		td1.appendChild(img);
+		td2.innerHTML=arr[1];//в ячейку x записываем значение x
+		td3.innerHTML=arr[2];//в ячейку z записываем значение z
+	}
+	else { //если аргумент arr не передан, занчит маркер несохраненный
+		td0.id='markerid';
+		var selector=createSelector(); // в ячейку с icon type добавляем селектор
+		selector.dataset['iconid']=0; //будем хранить id выбранной иконки в data-iconid селектора (контейнера div) 
+		td1.appendChild(selector);
+		td1.id='icon'; 
+		var input=document.createElement('input');//добавляем в ячейку x текстовый input
+		input.type='text';
+		input.autocomplete='off';
+		input.id='x'; 
+		td2.appendChild(input);
+		input=document.createElement('input');//добавляем в ячейку z текстовый input
+		input.type='text';
+		input.autocomplete='off';
+		input.id='z'; 
+		td3.appendChild(input);
+	};
+	return tr;//возвращаем строку*/
+}; 
+//функция для показа формы редактирования маркера
+function showEditForm(event) {
+	var tds=event.currentTarget.children; //получаем массив дочерних элементов (ячеек) строки, на которой был клик
+	markeridlabel.innerHTML=tds[0].innerHTML; //в форме в поле 'MarkerID' отображаем id маркера
+	editmarkericon.dataset['iconid']=tds[1].dataset['iconid']; 
+	editmarkericon.firstChild.firstChild.src='icons/'+editmarkericon.dataset['iconid']+'.png'; //устанавиваем иконку
+	xcoord.value=tds[2].innerHTML; //записываем координаты маркера
+	zcoord.value=tds[3].innerHTML;
+	editmarkerform.style.display='block';//делаем форму видимой
+};
+//2. Действия при загрузке страницы
+if (localStorage.maps) { //если свойство maps определено
+	var maps=JSON.parse(localStorage.maps);	
+	for (var i=0; i<maps.length; i++) { 
+		var option=document.createElement('option'); 
+		option.innerHTML=maps[i][0];
+		option.id=i;
+		map.appendChild(option); //добавляем карту в выпадающий список карт
+		var tbody=document.createElement('tbody'); //для каждой карты создаем элемент tbody 
+		tbody.classList.add('maptbody');
+		tbody.dataset['mapname']=maps[i][0];
+		for (var j=1; j<maps[i].length; j++) { 
+			tr=createMarkerRow(maps[i][j]); //для каждого маркера создаем строку tr
+			tr.classList.add('savedmarkers');
+			tr.firstChild.innerHTML=j;
+			tr.onclick=showEditForm;
+			tbody.appendChild(tr); //и помещаем ее в tbody
+		};
+		tab.appendChild(tbody);
+	};
+}
+else { //если свойство maps не определено
+	var maps=[];
+};
+var tr=createMarkerRow(); //создаем строку для нового маркера (несохраненного)
+tr.id='newtr'; 
+tab.appendChild(tr); //добавляем ее в конец таблицы
+//установили значения
+var selectedMapId=0; //в этой переменной будем хранить id выбранной карты
+showHideMarkers(); //скрываем лишние маркеры
+setNewMarkerId(); //устанавливаеи id несохраненного маркера
+command.value=''; //очищаем полу с командой
+var selector=createSelector(); //создаем селектор иконок для формы редактирования
+selector.id='editmarkericon';
+editmarkerform.insertBefore(selector,brelem);
+//Обработчики событий
+//выбор другой карты
+map.addEventListener('change',  function() {
+	selectedMapId=map.selectedOptions[0].id;
+	showHideMarkers(); //маркеры выбранной карты делаем выбранными, остальные - скрытыми
+	clearFields(); //очищаем поле команды, координаты несохраненного маркера. у несохраненного маркера выставляем 1-ю иконку 
+	setNewMarkerId(); //устанавливаем маркер ID несохраненного маркера
+});
+//клик по кнопке 'Generate command'
+generatebutton.addEventListener('click', function() {
+	if (map.selectedOptions[0]) {
+		if (x.value && z.value) {
+			command.value='/give '+username.value+' filled_map 1 '+map.selectedOptions[0].innerHTML+' {Decorations:['; //формируем команду
+			var trs=$('.maptbody:visible')[0].children; //получаем строки из нужного нам tbody
+			if (trs.length>0) {
+				for (var i=0; i<trs.length; i++) {
+					var tds=trs[i].children;
+					command.value+='{id:"'+tds[0].innerHTML+'",rot:180d,type:'+tds[1].dataset['iconid']+'b,x:'+tds[2].innerHTML+'d,z:'+tds[3].innerHTML+'d},';//добавляем в команду данные о сохраненных маркерах
+				};
+			};
+			command.value+='{id:"'+markerid.innerHTML+'",rot:180d,type:'+icon.firstChild.dataset['iconid']+'b,x:'+x.value+'d,z:'+z.value+'d}]}'; //добавляем в команду данные о несохраненном маркере
+		}
+		else {alert('set x and z  for new marker')};
+	}
+	else {alert('set map at first')};
+});
+//клик по кнопке для показа формы добавления карты
+addmapbutton.addEventListener('click', function() {
+	addmapform.style.display='block';
+});	
+//клик по кнопке 'Close form and cancel changes' на форме добавления карты
+closeaddmapform.addEventListener('click', function() {
+	mapname.value='';
+	addmapform.style.display='none';
+});
+//клин по кнопке 'Save map' в форме создания карты
+savemap.addEventListener('click', function() {
+	if (mapname.value=='') {alert('set map name')} //если имя карты не указано, просим сохранить
+	else {
+		addmapform.style.display='none'; //скрываем форму создания карты
+		option=document.createElement('option'); //добавляем новый элемент в выпадающий список карт
+		option.innerHTML=mapname.value;
+		option.id=maps.length;
+		map.appendChild(option);
+		map.selectedIndex=option.id; //делаем новую карту выбранной с списке карт
+		maps.push([mapname.value]);//добавляем карту в массив maps
+		localStorage.maps=JSON.stringify(maps); //записываем содержимое maps в хранилище	
+		var tbody=document.createElement('tbody');//создаем tbody для новой карты
+		tbody.dataset['mapname']=mapname.value;
+		tbody.classList.add('maptbody'); 	
+		tab.insertBefore(tbody, newtr); //добавляем его в таблицу
+		var event = new Event('change');
+		map.dispatchEvent(event); //генерим событие change у списка карт (чтобы скрыть ненужные маркеры)
+		mapname.value=''; //очищаем поле в форме создания карты
+	};
+});
+//сохранение маркера. здесь создаем новую строку и в нее помещаем значения из строки с несохраненным маркером. а поля в строке с несохраненным маркером очищаем.
+savemarkersbutton.addEventListener('click', function() {
+	if (map.selectedOptions[0]) {
+		if (x.value && z.value) {
+			var tr=document.createElement('tr'); //создаем новую строку
+			tr.classList.add('savedmarkers');
+			var td=document.createElement('td'); //создаем ячейку для MarkerID
+			td.innerHTML=markerid.innerHTML; //записываем в нее значение  из markerid 
+			tr.appendChild(td); 
+			var td=document.createElement('td'); //создаем ячейку для иконки
+			td.dataset['iconid']=icon.firstChild.dataset['iconid']; //записываем id выбранной иконки в data-iconid ячейки
+			var img=document.createElement('img'); //добавляем в ячейку иконку
+			img.src='icons/'+td.dataset['iconid']+'.png';
+			td.appendChild(img);
+			tr.appendChild(td); 
+			var td=document.createElement('td'); //создаем ячейку для координаты x
+			td.innerHTML=x.value; 
+			tr.appendChild(td);
+			var td=document.createElement('td'); //создаем ячейку для координаты z
+			td.innerHTML=z.value;
+			tr.appendChild(td);
+			tr.onclick=showEditForm; //назначаем новой строке обработчик клика (открытие формы редактирования маркера)
+			var elem=$('.maptbody:visible')[0];
+			elem.appendChild(tr); //добавляем в него созданную строку
+			maps[selectedMapId].push([icon.firstChild.dataset['iconid'],x.value,z.value]); //добавляем маркер в массив maps
+			localStorage.maps=JSON.stringify(maps); //данные из maps записываем в хранилище
+			clearFields();  //поля в строке с несохраненным маркером очищаем
+			setNewMarkerId(); //ставим новый MarkerId в строке с несохраненным маркером
+		}
+		else {alert('set x and z for new marker')};
+		}
+	else {alert('set map at first')};
+});
+//клик по кнопке 'Close form and cancel changes' на форме редактирования маркера
+closeeditform.addEventListener('click', function() {
+	editmarkerform.style.display='none';	
+});
+//клик по кнопке 'Save changes' на форме редактирования маркера
+editmarker.addEventListener('click', function(){
+	if (xcoord.value && zcoord.value) { //если на форме заполнены поля x и z
+		var index=editmarkericon.dataset['iconid'];
+		var x=xcoord.value; 
+		var z=zcoord.value;
+		var elem=jQuery('.savedmarkers:visible')[markeridlabel.innerHTML-1]; //получаем редактируемую строку
+		var children=elem.children; //получаем ее дочерние элементы (ячейки)
+		children[1].firstElementChild.src='icons/'+index+'.png' //меняем src изображения в ячейке с иконкой
+		children[1].dataset['iconid']=index; //меняем id выбранной иконки в data-iconid ячейки
+		children[2].innerHTML=x; //меняем значения в ячейках с координатами
+		children[3].innerHTML=z;
+		editmarkerform.style.display='none'; //скрываем форму редактирования
+		maps[selectedMapId][markeridlabel.innerHTML].splice(0,3,index,+x,+z); //в maps заменяем элементы вложенного массива, соответствующего нашему маркеру
+		localStorage.maps=JSON.stringify(maps); //записываем данные maps в хранилище
+	}
+	else {alert('set x and z  for new marker')};
+});
+//клик по селектору иконок
+$(".dropdown-menu li a").click(function () {
+    var imgSource = $(this).find('img').attr('src'); //получаем путь к файлу с выбранной иконкой
+	var iconid=imgSource[6]; //получаем id иконки из имени файла
+    var img = '<img src="' + imgSource + '"/>';   //новый img
+    $(this).parents('.btn-group').find('.dropdown-toggle').html(img +'<span class="caret"></span>');//добавляем его в элемент a
+	$(this).parents('.btn-group')[0].dataset['iconid']=iconid; //меняем значение data-iconid элемента div (id выбранной иконки )
+	
+	
+});
+//выбор файла с тестовым данными
+load.addEventListener('change', function (event) {
+	var file=event.target.files[0];
+	var reader = new FileReader();
+	reader.onload=function(event) {
+		localStorage.maps=event.target.result;
+		location.reload();
+	};
+	reader.readAsText(file);
+});
+//
+$("#x, #z, #xcoord, #zcoord").keydown(function(event) {
+	var code = event.keyCode;
+	if (code === 8) {
+		event.target.ifbackspace=true;
+	}
+	else {
+		event.target.ifbackspace=false;
+	}
+});
+$("#x, #z, #xcoord, #zcoord").keypress(function(event) {
+	var code = event.charCode;
+	if ((code < 48 || code > 57) && !(code === 45 && event.target.value==='') && (!event.target.ifbackspace))	{
+		return false;
+	};
+});
+	</script>
+</html>
